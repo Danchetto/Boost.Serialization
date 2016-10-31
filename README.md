@@ -274,4 +274,77 @@ int main()
   load();
 }
 ```
+Пример 64.6 расширяет класс `**animal**` путем добавления члена `**name_**`, переменной типа std::string. Для того, чтобы сериализовать эту переменную, должен быть подключен заголовочный файл boost/serialization/string.hpp, чтобы предоставить свободно стоящую функцию serialize().
 
+Как упоминалось ранее, Boost.Serialization определяет функции serialize() для многих классов из стандартной библиотеки. Эти функции определены в заголовочных файлах, имеющих то же имя, что и соответствующие файлы заголовков из стандарта. Таким образом, чтобы сериализовать объекты типа std::string, подключают файл boost/serialization/string.hpp, а чтобы сериализовать объекты типа std::vector, подключают файл boost/serialization/vector.hpp . Это довольно очевидно, какой заголовочный файл необходимо подключить.
+
+Один параметр функции serialize(), который был проигнорирован, является `**version**`. Этот параметр помогает делать архивы с обратной совместимостью. Пример 64.7 может загрузить архив, который был создан в примере 64.5. Версия класса `**animal**` в примере 64.5 не содержит `**name_**`. Пример 64.7 проверяет номер версии при загрузке архива и только обращается к имени, если версия больше 0. Это позволяет обрабатывать старые архивы, который были созданы без имени.
+
+`Пример 64.7. Обратная совместимость с номерами версий`
+```c++
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/serialization/string.hpp>
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <utility>
+
+using namespace boost::archive;
+
+std::stringstream ss;
+
+class animal
+{
+public:
+  animal() = default;
+  animal(int legs, std::string name) :
+    legs_{legs}, name_{std::move(name)} {}
+  int legs() const { return legs_; }
+  const std::string &name() const { return name_; }
+
+private:
+  friend class boost::serialization::access;
+
+  template <typename Archive>
+  friend void serialize(Archive &ar, animal &a, const unsigned int version);
+
+  int legs_;
+  std::string name_;
+};
+
+template <typename Archive>
+void serialize(Archive &ar, animal &a, const unsigned int version)
+{
+  ar & a.legs_;
+  if (version > 0)
+    ar & a.name_;
+}
+
+BOOST_CLASS_VERSION(animal, 1)
+
+void save()
+{
+  text_oarchive oa{ss};
+  animal a{4, "cat"};
+  oa << a;
+}
+
+void load()
+{
+  text_iarchive ia{ss};
+  animal a;
+  ia >> a;
+  std::cout << a.legs() << '\n';
+  std::cout << a.name() << '\n';
+}
+
+int main()
+{
+  save();
+  load();
+}
+```
+Макрос BOOST_CLASS_VERSION присваивает классу номер версии. Для класса `**animal**` в примере 64.7 — 1. Если BOOST_CLASS_VERSION не используется, по умолчанию номер версии равен 0.
+
+Номер версии хранится в архиве и является его частью. В то время как номер версии, указанный для определенного класса через макрос BOOST_CLASS_VERSION, используется во время сериализации, параметру `**version**` функции serialize() будет присвоено значение, хранящееся в архиве, при восстановлении. Если новая версия класса `**animal**` обращается к архив, содержащий объект, сериализованный со старой версией, переменная `**name_**` не будет быть восстановлена, так как старая версия не имеет такого члена.
