@@ -3,10 +3,12 @@
 ## Содержание
 - [Архив](#Архив)
 - [Указатели и ссылки](#Указатели-и-ссылки)
-- Сериализация иерархии классов объектов
-- Оберточные функции для оптимизации
+- [Сериализация объектов иерархии классов](#Сериализация-объектов-иерархии-классов)
+- [Оберточные функции для оптимизации](#)
 
 Библиотека [Boost.Serialization](#http://www.boost.org/doc/libs/1_62_0/libs/serialization/doc/index.html) позволяет преобразовать объекты в программе C++ в последовательности байтов, которые могут быть сохранены и загружены для восстановления объектов. Существуют различные форматы данных, доступные для определения правил генерации последовательности байтов. Все форматы, поддерживаемые Boost.Serialization предназначены только для использования с этой библиотекой. Например, формат XML, разработанный для Boost.Serialization, не должен использоваться для обмена данными с программами, которые не используют Boost.Serialization. Единственное преимущество формата XML является то, что он может сделать отладку проще, так как объекты C++ сохраняются в удобном для чтения формате.
+
+Как указано в [release notes](#http://www.boost.org/users/history/version_1_55_0.html) версии 1.55.0 библиотек Boost, отсутствие include вызывает ошибку компилятора в Visual C++ 2013. Эта ошибка была исправлена в Boost 1.56.0.
 
 ***
 
@@ -525,3 +527,81 @@ int main()
 }
 ```
 Используя Boost.Serialization, можно сериализовать ссылки без проблем (см. [пример 64.10](#example6410)). Как и с указателями, указанный объект сериализуется автоматически.
+
+# Сериализация объектов иерархии классов
+
+Производные классы должны иметь доступ к функции **`boost:: serialization::base_object()`** внутри функции-члена **`serialize()`** для сериализации объектов, основанных на иерархии классов. Данная функция гарантирует правильную сериализацию наследуемых переменных из базового класса.
+
+<a name="example6411"></a>
+`Пример 64.11. Правильная сериализация производных классов`
+```c++
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <iostream>
+#include <sstream>
+
+using namespace boost::archive;
+std::stringstream ss;
+
+class animal
+{
+public:
+  animal() = default;
+  animal(int legs) : legs_{legs} {}
+  int legs() const { return legs_; }
+
+private:
+  friend class boost::serialization::access;
+
+  template <typename Archive>
+  void serialize(Archive &ar, const unsigned int version) { ar & legs_; }
+
+  int legs_;
+};
+
+class bird : public animal
+{
+public:
+  bird() = default;
+  bird(int legs, bool can_fly) :
+    animal{legs}, can_fly_{can_fly} {}
+  bool can_fly() const { return can_fly_; }
+
+private:
+  friend class boost::serialization::access;
+
+  template <typename Archive>
+  void serialize(Archive &ar, const unsigned int version)
+  {
+    ar & boost::serialization::base_object<animal>(*this);
+    ar & can_fly_;
+  }
+
+  bool can_fly_;
+};
+
+void save()
+{
+  text_oarchive oa{ss};
+  bird penguin{2, false};
+  oa << penguin;
+}
+
+void load()
+{
+  text_iarchive ia{ss};
+  bird penguin;
+  ia >> penguin;
+  std::cout << penguin.legs() << '\n';
+  std::cout << std::boolalpha << penguin.can_fly() << '\n';
+}
+
+int main()
+{
+  save();
+  load();
+}
+```
+[Пример 64.11](#example6411) использеут класс **`bird`**, наследованный от **`animal`**. В обоих классах определена приватная функция **`serialize()`**, что позволяет серилиазовать объекты, основанные на любом классе. Так как класс **`bird`** наследован от класса **`animal`**, **`serialize()`** должна убедиться, что переменные, наследованные от **`animal`** также были сериализованы.
+
+Унаследованные переменные-члены сериализуются благодаря обращению к базовому классу через функцию **`serialize()`** производного класса и вызова **`boost::serialization::base_object()`**. Необходимо вызывать эту функция, а не, например, **`static_cast`**, потому что **`boost::serialization::base_object()`** обеспечиват правильную сериализацию.
