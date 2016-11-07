@@ -2,7 +2,7 @@
 
 ## Содержание
 - [Архив](#Архив)
-- [Указатели и ссылки]()
+- [Указатели и ссылки](#Указатели-и-ссылки)
 - Сериализация иерархии классов объектов
 - Оберточные функции для оптимизации
 
@@ -355,3 +355,173 @@ int main()
 Макрос `BOOST_CLASS_VERSION` присваивает классу номер версии. Для класса **`animal`** в [примере 64.7](#example647) — 1. Если BOOST_CLASS_VERSION не используется, по умолчанию номер версии равен 0.
 
 Номер версии хранится в архиве и является его частью. В то время как номер версии, указанный для определенного класса через макрос `BOOST_CLASS_VERSION`, используется во время сериализации, параметру **`version`** функции serialize() будет присвоено значение, хранящееся в архиве, при восстановлении. Если новая версия класса **`animal`** обращается к архив, содержащий объект, сериализованный со старой версией, переменная **`name_`** не будет быть восстановлена, так как старая версия не имеет такого члена.
+
+# Указатели и ссылки
+
+[Boost.Serialization](#http://www.boost.org/doc/libs/1_62_0/libs/serialization/doc/index.html) также обеспечивает работу с указателями и ссылками. Так как указатель хранит адрес объекта, сериализовывать адрес нет смысла. При сериализации указателей и ссылок сериализуется объект, на который ссылается указатель или ссылка.
+
+<a name="example648"></a>
+`Пример 64.8. Сериализация указателей`
+```c++
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <iostream>
+#include <sstream>
+
+std::stringstream ss;
+
+class animal
+{
+public:
+  animal() = default;
+  animal(int legs) : legs_{legs} {}
+  int legs() const { return legs_; }
+
+private:
+  friend class boost::serialization::access;
+
+  template <typename Archive>
+  void serialize(Archive &ar, const unsigned int version) { ar & legs_; }
+
+  int legs_;
+};
+
+void save()
+{
+  boost::archive::text_oarchive oa{ss};
+  animal *a = new animal{4};
+  oa << a;
+  std::cout << std::hex << a << '\n';
+  delete a;
+}
+
+void load()
+{
+  boost::archive::text_iarchive ia{ss};
+  animal *a;
+  ia >> a;
+  std::cout << std::hex << a << '\n';
+  std::cout << std::dec << a->legs() << '\n';
+  delete a;
+}
+
+int main()
+{
+  save();
+  load();
+}
+```
+
+[Пример 64.8](#example648) создает объект типа **`animal`** с помощью **`new`** и присваивает его указателю **`a`**. Указатель - не **`*a`** - становится сериализованным. Boost.Serialization автоматически сериализует объект, на который ссылкается указатель **`a`**, а не адрес этого объекта.
+
+После восстановления архива, **`*a`** не обязаьельно будет хранить тот же адрес. Будет создан новый объект, и его адрес будет присвоен **`*a`** вместо прежнего. Boost.Serialization гарантирует только то, что объект остался таким же, каким был до сериализации, но не гарантирует сохранение адреса.
+
+Так как умные указатели используются с динамически выделяемой памятью, Boost.Serialization также обеспечивает поддержку для них.
+
+<a name="example649"></a>
+`Пример 64.9. Сериализация умных указателей`
+```c++
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/serialization/scoped_ptr.hpp>
+#include <boost/scoped_ptr.hpp>
+#include <iostream>
+#include <sstream>
+
+using namespace boost::archive;
+
+std::stringstream ss;
+
+class animal
+{
+public:
+  animal() = default;
+  animal(int legs) : legs_{legs} {}
+  int legs() const { return legs_; }
+
+private:
+  friend class boost::serialization::access;
+
+  template <typename Archive>
+  void serialize(Archive &ar, const unsigned int version) { ar & legs_; }
+
+  int legs_;
+};
+
+void save()
+{
+  text_oarchive oa{ss};
+  boost::scoped_ptr<animal> a{new animal{4}};
+  oa << a;
+}
+
+void load()
+{
+  text_iarchive ia{ss};
+  boost::scoped_ptr<animal> a;
+  ia >> a;
+  std::cout << a->legs() << '\n';
+}
+
+int main()
+{
+  save();
+  load();
+}
+```
+[Пример 64.9](#example649) использует умный указатель **`boost::scoped_ptr`** для управления динамически выдленным объектом типа **`animal`**. Для сериализации такого указателя подключите **`boost/serialization/scoped_ptr.hpp`**. А для сериализации умного указателя типа **`boost::shared_ptr`** подключите заголовочный файл **`boost/serialization/shared_ptr.hpp`**.
+
+Пожалуйста, обратите внимание, что Boost.Serialization пока не обновлен до C++11. Умные указатели из стандортной библиотеки C++11, такие как **`std::shared_ptr`** и **`std::unique_ptr`** в настоящее время не поддерживаются.
+
+<a name="example6410"></a>
+`Пример 64.10. Сериализация ссылки`
+```c++
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <iostream>
+#include <sstream>
+
+using namespace boost::archive;
+
+std::stringstream ss;
+
+class animal
+{
+public:
+  animal() = default;
+  animal(int legs) : legs_{legs} {}
+  int legs() const { return legs_; }
+
+private:
+  friend class boost::serialization::access;
+
+  template <typename Archive>
+  void serialize(Archive &ar, const unsigned int version) { ar & legs_; }
+
+  int legs_;
+};
+
+void save()
+{
+  text_oarchive oa{ss};
+  animal a{4};
+  animal &r = a;
+  oa << r;
+}
+
+void load()
+{
+  text_iarchive ia{ss};
+  animal a;
+  animal &r = a;
+  ia >> r;
+  std::cout << r.legs() << '\n';
+}
+
+int main()
+{
+  save();
+  load();
+}
+```
+Используя Boost.Serialization, можно сериализовать ссылки без проблем (см. [пример 64.10](#example6410)). Как и с указателями, указанный объект сериализуется автоматически.
