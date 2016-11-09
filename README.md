@@ -605,3 +605,162 @@ int main()
 [Пример 64.11](#example6411) использеут класс **`bird`**, наследованный от **`animal`**. В обоих классах определена приватная функция **`serialize()`**, что позволяет серилиазовать объекты, основанные на любом классе. Так как класс **`bird`** наследован от класса **`animal`**, **`serialize()`** должна убедиться, что переменные, наследованные от **`animal`** также были сериализованы.
 
 Унаследованные переменные-члены сериализуются благодаря обращению к базовому классу через функцию **`serialize()`** производного класса и вызова **`boost::serialization::base_object()`**. Необходимо вызывать эту функцию, а не, например, **`static_cast`**, потому что **`boost::serialization::base_object()`** обеспечиват правильную сериализацию.
+
+Адреса динамически созданных объектов могут быть присвоены указателям соответсвующего типа базового класса. [Пример 64.12](#example6412) показывает, что Boost.Serialization может правильно их сериализовать.
+
+<a name="example6412"></a>
+`Пример 64.12. Статическая регистрация производных классов с `**BOOST_CLASS_EXPORT**`
+```c++
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/serialization/export.hpp>
+#include <iostream>
+#include <sstream>
+
+using namespace boost::archive;
+
+std::stringstream ss;
+
+class animal
+{
+public:
+  animal() = default;
+  animal(int legs) : legs_{legs} {}
+  virtual int legs() const { return legs_; }
+  virtual ~animal() = default;
+
+private:
+  friend class boost::serialization::access;
+
+  template <typename Archive>
+  void serialize(Archive &ar, const unsigned int version) { ar & legs_; }
+
+  int legs_;
+};
+
+class bird : public animal
+{
+public:
+  bird() = default;
+  bird(int legs, bool can_fly) :
+    animal{legs}, can_fly_{can_fly} {}
+  bool can_fly() const { return can_fly_; }
+
+private:
+  friend class boost::serialization::access;
+
+  template <typename Archive>
+  void serialize(Archive &ar, const unsigned int version)
+  {
+    ar & boost::serialization::base_object<animal>(*this);
+    ar & can_fly_;
+  }
+
+  bool can_fly_;
+};
+
+BOOST_CLASS_EXPORT(bird)
+
+void save()
+{
+  text_oarchive oa{ss};
+  animal *a = new bird{2, false};
+  oa << a;
+  delete a;
+}
+
+void load()
+{
+  text_iarchive ia{ss};
+  animal *a;
+  ia >> a;
+  std::cout << a->legs() << '\n';
+  delete a;
+}
+
+int main()
+{
+  save();
+  load();
+}
+```
+Эта программа создает объект типа **`bird`** внутри функции **`save()`** и присваивает его указателю типа **`animal*`**, который, в свою очередь, сериализуется через оператор <<.
+
+Как было упомянуто в предыдущем разделе, сериализуется объект, на который ссылаются, а не указатель. Чтобы Boost.Serialization распознал, что необходимо сериализовать объект типа **`bird`**, несмотря на то, что указатель имеет тип **`animal*`**, класс **`bird`** должен быть объявлен. Это делается с помощью макроса **`BOOST_CLASS_EXPORT`**, который определен в файле **`boost/serialization/export.hpp`**. Так как тип **`bird`** не появляется в определении указателя, Boost.Serialization не может серилиазовать тип **`bird`** правильно.
+
+Макрос **`BOOST_CLASS_EXPORT`** необходимо использовать, когда объект производного класса сериализуется при помощи указателя на базовый класс. Недостатком **`BOOST_CLASS_EXPORT`** является то, что из-за статической регистрации, заоегистрированные классы могут использовать ся для сериализации не полностью. Boost.Serialization предлагает решения для этого сценария.
+
+<a name="example6413"></a>
+`Пример 64.13. Регистрация динамических производных классов с register_type()`
+```c++
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/serialization/export.hpp>
+#include <iostream>
+#include <sstream>
+
+std::stringstream ss;
+
+class animal
+{
+public:
+  animal() = default;
+  animal(int legs) : legs_{legs} {}
+  virtual int legs() const { return legs_; }
+  virtual ~animal() = default;
+
+private:
+  friend class boost::serialization::access;
+
+  template <typename Archive>
+  void serialize(Archive &ar, const unsigned int version) { ar & legs_; }
+
+  int legs_;
+};
+
+class bird : public animal
+{
+public:
+  bird() = default;
+  bird(int legs, bool can_fly) :
+    animal{legs}, can_fly_{can_fly} {}
+  bool can_fly() const { return can_fly_; }
+
+private:
+  friend class boost::serialization::access;
+
+  template <typename Archive>
+  void serialize(Archive &ar, const unsigned int version)
+  {
+    ar & boost::serialization::base_object<animal>(*this);
+    ar & can_fly_;
+  }
+
+  bool can_fly_;
+};
+
+void save()
+{
+  boost::archive::text_oarchive oa{ss};
+  oa.register_type<bird>();
+  animal *a = new bird{2, false};
+  oa << a;
+  delete a;
+}
+
+void load()
+{
+  boost::archive::text_iarchive ia{ss};
+  ia.register_type<bird>();
+  animal *a;
+  ia >> a;
+  std::cout << a->legs() << '\n';
+  delete a;
+}
+
+int main()
+{
+  save();
+  load();
+}
+```
